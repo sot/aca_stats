@@ -14,11 +14,13 @@ acq_data = f.add_column(acq_data, 'tstart_quarter' , np.zeros(len(acq_data)))
 acq_data = f.add_column(acq_data, 'mag_floor' , np.zeros(len(acq_data)))
 acq_data['tstart_jyear'] = Time(acq_data['tstart'], format='cxcsec').jyear
 
+count = 0
 for acq in acq_data:
+	count += 1
 	acq.tstart_quarter = f.quarter_bin(acq.tstart_jyear)
+	# print acq.tstart_jyear, f.quarter_bin(acq.tstart_jyear)
 	acq.mag_floor = np.floor(acq.mag)
-
-
+	# print acq.mag_floor, acq.mag
 
 #Function to calculate Acquistions by Quarter
 def acq_byquarter(arr, mag=None):
@@ -40,11 +42,9 @@ def acq_byquarter(arr, mag=None):
 	failure_rate = np.array(failure_counts) / np.array(obs_counts)
 	return [quarters, failure_rate]
 
-mag9 = acq_byquarter(acq_data, mag=9)
-mag10 = acq_byquarter(acq_data, mag=10)
-
-
-
+mag8 = acq_byquarter(acq_data, mag=8.0)
+mag9 = acq_byquarter(acq_data, mag=9.0)
+mag10 = acq_byquarter(acq_data, mag=10.0)
 
 
 #Plottings Figures
@@ -55,6 +55,8 @@ def plot_failures(out, fname):
 	plt.ylabel('Acq Fail Rate (%)')
 	F.set_size_inches(10,5)
 	F.savefig(fname, type='pdf')
+	print("Plot:", fname, "... complete")
 
+plot_failures(mag8, 'mag8.pdf')
 plot_failures(mag9, 'mag9.pdf')
 plot_failures(mag10, 'mag10.pdf')

@@ -1,4 +1,6 @@
 import numpy as np
+from astropy.time import Time
+from datetime import datetime
 
 def add_column(recarray, name, val, index=None):
     #Stolen from Ska.Numpy
@@ -32,15 +34,32 @@ def add_column(recarray, name, val, index=None):
     return np.rec.fromarrays(arrays, dtype=dtypes)
 
 def quarter_bin(number):
-	frac = number - np.floor(number)
-	if frac >= 0. and frac < 0.25:
+	frac = np.modf(number)[0]
+	# print(frac)
+	# print(number)
+	# print(Time(datetime(2014,1,31)).jyear)
+	# Jan31 = np.modf(Time(datetime(2014,1,31)).jyear)[0]
+	# Apr30 = np.modf(Time(datetime(2014,4,30)).jyear)[0]
+	# Jul31 = np.modf(Time(datetime(2014,7,31)).jyear)[0]
+	# Oct31 = np.modf(Time(datetime(2014,10,31)).jyear)[0]
+
+	Jan31 = 0.082135523613942496
+	Apr30 = 0.3258042436686992
+	Jul31 = 0.57768651608489563
+	Oct31 = 0.82956878850109206
+
+	if frac >= 0.0 and frac <= Jan31:
 		return np.floor(number)
-	elif frac >= 0.25 and frac < 0.50:
+	elif frac > Jan31 and frac <= Apr30:
 		return np.floor(number) + 0.25
-	elif frac >= 0.50 and frac < 0.75:
+	elif frac > Apr30 and frac <= Jul31:
 		return np.floor(number) + 0.50
-	else:
+	elif frac > Jul31 and frac <= Oct31:
 		return np.floor(number) + 0.75
+	else:
+		return np.floor(number) + 1
+
+
 
 # def quarter_bin(number):
 # 	frac = number - np.floor(number)
