@@ -59,7 +59,11 @@ def quarter_bin(number):
 	else:
 		return np.floor(number) + 1
 
-
+def scale_offset(mag):
+	m = mag - 10.0
+	scale = 10**(0.18 + 0.99*m + 0.49*m**2)
+	offset = 10**(-1.49 + 0.89*m + 0.28*m**2)
+	return scale, offset
 
 # def quarter_bin(number):
 # 	frac = number - np.floor(number)

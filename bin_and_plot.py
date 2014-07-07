@@ -3,6 +3,7 @@ import astropy
 import functions as f
 import matplotlib.pyplot as plt
 
+from numpy import genfromtxt
 from astropy.time import Time
  
 #Loading data from file
@@ -60,3 +61,41 @@ def plot_failures(out, fname):
 plot_failures(mag8, 'plots/mag8.pdf')
 plot_failures(mag9, 'plots/mag9.pdf')
 plot_failures(mag10, 'plots/mag10.pdf')
+
+darkvals = genfromtxt('data/N100.csv', dtype=None, delimiter='\t', names=True)
+
+t = Time(darkvals['Date_YearDOY'])
+
+def plot_warm_pix(times, n100, mag, fname):
+	scale, offset = f.scale_offset(mag) 
+	warm_pix_frac = scale * n100 / 1024**2 + offset
+	dates = t.jyear
+	F = plt.figure()
+	plt.plot(dates, warm_pix_frac, linestyle="-", color='r')
+	plt.xlabel('Time')
+	plt.ylabel('Warm Pix Fraction (%)')
+	F.set_size_inches(10,5)
+	F.savefig(fname, type='pdf')
+	print("Plot:", fname, "... complete")
+
+plot_warm_pix(t, darkvals['N100_es'], 8, 'plots/warm_pix_mag8.pdf')
+plot_warm_pix(t, darkvals['N100_es'], 9, 'plots/warm_pix_mag9.pdf')
+plot_warm_pix(t, darkvals['N100_es'], 10, 'plots/warm_pix_mag10.pdf')
+
+
+def plot_overlay(acq_data, mag, times, n100, fname):
+	magData = acq_byquarter(acq_data, mag=mag)
+	scale, offset = f.scale_offset(mag) 
+	warm_pix_frac = scale * n100 / 1024**2 + offset
+	dates = t.jyear
+	F = plt.figure()
+	plt.plot(magData[0], magData[1], marker='o', linestyle="")
+	plt.plot(dates, warm_pix_frac, linestyle="-", color='r')
+	F.set_size_inches(10,5)
+	F.savefig(fname, type='pdf')
+	print("Plot:", fname, "... complete")
+
+plot_overlay(acq_data, 10.0, t, darkvals['N100_es'], 'plots/overlay_mag10.pdf')	
+plot_overlay(acq_data, 9.0, t, darkvals['N100_es'], 'plots/overlay_mag9.pdf')	
+
+
