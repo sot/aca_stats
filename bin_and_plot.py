@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from astropy.time import Time
  
 #Loading data from file
-acq_data = np.load('../data/acq_table.npy')
+acq_data = np.load('data/acq_table.npy')
 
 #Adding fields required for analysis
 acq_data = f.add_column(acq_data, 'tstart_jyear' , np.zeros(len(acq_data)))
@@ -57,6 +57,6 @@ def plot_failures(out, fname):
 	F.savefig(fname, type='pdf')
 	print("Plot:", fname, "... complete")
 
-plot_failures(mag8, 'mag8.pdf')
-plot_failures(mag9, 'mag9.pdf')
-plot_failures(mag10, 'mag10.pdf')
+plot_failures(mag8, 'plots/mag8.pdf')
+plot_failures(mag9, 'plots/mag9.pdf')
+plot_failures(mag10, 'plots/mag10.pdf')
