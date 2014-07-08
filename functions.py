@@ -65,16 +65,14 @@ def scale_offset(mag):
 	offset = 10**(-1.49 + 0.89*m + 0.28*m**2)
 	return scale, offset
 
-# def quarter_bin(number):
-# 	frac = number - np.floor(number)
-# 	if frac >= 0. and frac < 0.35:
-# 		return np.floor(number)
-# 	elif frac >= 0.35 and frac < 0.60:
-# 		return np.floor(number) + 0.25
-# 	elif frac >= 0.60 and frac < 0.85:
-# 		return np.floor(number) + 0.50
-# 	else:
-# 		return np.floor(number) + 0.75
+def subset_by_mag(arr, mag):
+	indx_by_mag = np.where(arr.mag_floor==mag)
+	return arr[indx_by_mag]
+
+def subset_obcid(subset, val):
+	indx_failed = np.where(subset.obc_id==val)
+	return subset[indx_failed]
+
 
 
 
