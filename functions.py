@@ -73,6 +73,9 @@ def subset_obcid(subset, val):
 	indx_failed = np.where(subset.obc_id==val)
 	return subset[indx_failed]
 
+def subset_pos(subset, grp, val):
+	indx = np.where(subset[grp]==val)
+	return subset[indx]
 
 
 

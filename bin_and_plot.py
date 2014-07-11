@@ -13,11 +13,14 @@ acq_data = np.load('data/acq_table.npy')
 acq_data = f.add_column(acq_data, 'tstart_jyear' , np.zeros(len(acq_data)))
 acq_data = f.add_column(acq_data, 'tstart_quarter' , np.zeros(len(acq_data)))
 acq_data = f.add_column(acq_data, 'mag_floor' , np.zeros(len(acq_data)))
+acq_data = f.add_column(acq_data, 'year' , np.zeros(len(acq_data)))
 acq_data['tstart_jyear'] = Time(acq_data['tstart'], format='cxcsec').jyear
+acq_data['year'] = np.floor(acq_data.tstart_jyear)
 
 for acq in acq_data:
 	acq.tstart_quarter = f.quarter_bin(acq.tstart_jyear)
 	acq.mag_floor = np.floor(acq.mag)
+
 
 #Function to calculate Acquistions by Quarter
 def acq_byquarter(arr, mag=None):
@@ -50,6 +53,12 @@ subset_mag10 = f.subset_by_mag(acq_data, 10.0)
 obs_failed = f.subset_obcid(acq_data, "NOID")
 obs_acq = f.subset_obcid(acq_data, "ID")
 
+failed9s = f.subset_obcid(subset_mag9, "NOID")
+acqrd9s = f.subset_obcid(subset_mag9, "ID")
+
+failed10s = f.subset_obcid(subset_mag10, "NOID")
+acqrd10s = f.subset_obcid(subset_mag10, "ID")
+
 darkvals = genfromtxt('data/N100.csv', dtype=None, delimiter='\t', names=True)
 
 t = Time(darkvals['Date_YearDOY'])
@@ -63,7 +72,7 @@ def plot_failures(out, fname):
 	F.set_size_inches(10,5)
 	F.savefig(fname, type='pdf')
 	plt.close()
-	print("Plot:", fname, "... complete")
+	print "Plot: {0}... complete".format(fname)
 
 plot_failures(mag8, 'plots/mag8.pdf')
 plot_failures(mag9, 'plots/mag9.pdf')
@@ -80,7 +89,7 @@ def plot_warm_pix(times, n100, mag, fname):
 	F.set_size_inches(10,5)
 	F.savefig(fname, type='pdf')
 	plt.close()
-	print("Plot:", fname, "... complete")
+	print "Plot: {0}... complete".format(fname)
 
 plot_warm_pix(t, darkvals['N100_es'], 8, 'plots/warm_pix_mag8.pdf')
 plot_warm_pix(t, darkvals['N100_es'], 9, 'plots/warm_pix_mag9.pdf')
@@ -98,7 +107,7 @@ def plot_overlay(acq_data, mag, times, n100, fname):
 	F.set_size_inches(10,5)
 	F.savefig(fname, type='pdf')
 	plt.close()
-	print("Plot:", fname, "... complete")
+	print "Plot: {0}... complete".format(fname)
 
 plot_overlay(acq_data, 10.0, t, darkvals['N100_es'], 'plots/overlay_mag10.pdf')	
 plot_overlay(acq_data, 9.0, t, darkvals['N100_es'], 'plots/overlay_mag9.pdf')
@@ -111,7 +120,7 @@ def plot_warmpix_fromfile(subset, fname):
 	F.set_size_inches(10,5)
 	F.savefig(fname, type='pdf')
 	plt.close()
-	print("Plot:", fname, "... complete")
+	print "Plot: {0}... complete".format(fname)
 
 plot_warmpix_fromfile(subset_mag9, 'plots/subsetmag9.pdf')
 plot_warmpix_fromfile(subset_mag10, 'plots/subsetmag10.pdf')
@@ -126,7 +135,7 @@ def plot_failedheat(subset, fname):
 	F.set_size_inches(5,5)
 	F.savefig(fname, type='pdf')
 	plt.close()
-	print("Plot:", fname, "... complete")
+	print "Plot: {0}... complete".format(fname)
 
 plot_failedheat(obs_failed, 'plots/failedheat.pdf')
 plot_failedheat(obs_acq, 'plots/acqheat.pdf')
@@ -137,7 +146,7 @@ def histogram_pos(subset, grp, fname):
 	F.set_size_inches(10,5)
 	F.savefig(fname, type='pdf')
 	plt.close()
-	print("Plot:", fname, "... complete")
+	print "Plot: {0}... complete".format(fname)
 
 def hist_stacked(subset1, subset2, grp, fname):
 	F = plt.figure()
@@ -146,7 +155,7 @@ def hist_stacked(subset1, subset2, grp, fname):
 	F.set_size_inches(10,5)
 	F.savefig(fname, type='pdf')
 	plt.close()
-	print("Plot:", fname, "... complete")
+	print "Plot: {0}... complete".format(fname)
 
 
 hist_stacked(obs_acq, obs_failed, 'slot', 'plots/stacked_slots.pdf')
@@ -167,7 +176,7 @@ def hist_percents(subset, lrgset, grp, fname):
 	F.set_size_inches(10,5)
 	F.savefig(fname, type='pdf')
 	plt.close()
-	print("Plot:", fname, "... complete")
+	print "Plot: {0}... complete".format(fname)
 
 hist_percents(obs_failed, acq_data, 'cat_pos', 'plots/histogram_catpos_percents.pdf')
 hist_percents(obs_failed, acq_data, 'slot', 'plots/histogram_slot_percents.pdf')
@@ -178,30 +187,189 @@ hist_percents(f.subset_by_mag(obs_failed, 10.0), subset_mag10, 'slot', 'plots/hi
 hist_percents(f.subset_by_mag(obs_failed, 9.0), subset_mag9, 'cat_pos', 'plots/histogram_catpos_percents_mag9.pdf')
 hist_percents(f.subset_by_mag(obs_failed, 9.0), subset_mag9, 'slot', 'plots/histogram_slot_percents_mag9.pdf')
 
-def subset_pos(subset, grp, val):
-	indx = np.where(subset[grp]==val)
-	return subset[indx]
+
 
 def boxplots_grp(subset, grp, fname):
-	pos0 = subset_pos(subset, grp, 0.0).mag
-	pos1 = subset_pos(subset, grp, 1.0).mag
-	pos2 = subset_pos(subset, grp, 2.0).mag
-	pos3 = subset_pos(subset, grp, 3.0).mag
-	pos4 = subset_pos(subset, grp, 4.0).mag
-	pos5 = subset_pos(subset, grp, 5.0).mag
-	pos6 = subset_pos(subset, grp, 6.0).mag
-	pos7 = subset_pos(subset, grp, 7.0).mag
+	pos0 = f.subset_pos(subset, grp, 0.0).mag
+	pos1 = f.subset_pos(subset, grp, 1.0).mag
+	pos2 = f.subset_pos(subset, grp, 2.0).mag
+	pos3 = f.subset_pos(subset, grp, 3.0).mag
+	pos4 = f.subset_pos(subset, grp, 4.0).mag
+	pos5 = f.subset_pos(subset, grp, 5.0).mag
+	pos6 = f.subset_pos(subset, grp, 6.0).mag
+	pos7 = f.subset_pos(subset, grp, 7.0).mag
 	all_positions = [pos0, pos1, pos2, pos3, pos4, pos5, pos6, pos7]
 	F = plt.figure()
 	plt.boxplot(all_positions)
 	F.set_size_inches(10,5)
 	F.savefig(fname, type='pdf')
 	plt.close()
-	print("Plot:", fname, "... complete")
+	print "Plot: {0}... complete".format(fname)
 
 boxplots_grp(acq_data, 'slot', 'plots/boxplot_slot_mag.pdf')
 boxplots_grp(acq_data, 'cat_pos', 'plots/boxplot_catpos_mag.pdf')
 boxplots_grp(obs_failed, 'slot', 'plots/boxplot_slot_mag_failedonly.pdf')
 boxplots_grp(obs_failed, 'cat_pos', 'plots/boxplot_catpos_mag_failedonly.pdf')
 
+unique_halfw = np.unique(acq_data.halfw)
+hw_strs =  unique_halfw.astype(str)
+
+def plot_halfwidth_failures(subset, fname):
+	hw_failrate = []
+	hw_acqrate = []
+	failed = f.subset_obcid(subset, "NOID")
+	acqd = f.subset_obcid(subset, "ID")
+	for hw in unique_halfw:
+		hw_tot = len(np.where(subset.halfw == hw)[0])
+		if hw_tot == 0:
+			hw_failrate.append(0.0)
+			hw_acqrate.append(0.0)
+		else:
+			hw_failed = len(np.where(failed.halfw == hw)[0])
+			hw_acq = len(np.where(acqd.halfw == hw)[0])
+			hw_failrate.append(np.float(hw_failed) / hw_tot)
+			hw_acqrate.append(np.float(hw_acq) / hw_tot)
+		# print hw, hw_tot, hw_failed, hw_acq
+
+	fig = plt.figure()
+	plt.subplot(211)
+	plt.bar(np.arange(len(hw_strs)), hw_failrate)
+	plt.xticks(np.arange(len(hw_strs)) + 0.5,hw_strs, rotation=90)
+
+	plt.subplot(212)
+	plt.bar(np.arange(len(hw_strs)), hw_acqrate)
+	plt.xticks(np.arange(len(hw_strs)) + 0.5,hw_strs, rotation=90)
+
+	fig.set_size_inches(13,7)
+	fig.savefig(fname, type='pdf')
+	print "Plot: {0}... complete".format(fname)
+
+plot_halfwidth_failures(acq_data, 'plots/hw_rates_all.pdf')
+plot_halfwidth_failures(subset_mag9, 'plots/hw_rates_mag9.pdf')
+plot_halfwidth_failures(subset_mag10, 'plots/hw_rates_mag10.pdf')
+
+
+#Plots Added 7/11/14
+
+fig = plt.figure()
+
+plt.subplot(321)
+plt.plot(obs_failed.mag, obs_failed.warm_pix, marker='.', linestyle='')
+plt.subplot(322)
+plt.plot(obs_acq.mag, obs_acq.warm_pix, marker='.', linestyle='')
+plt.subplot(323)
+plt.plot(failed9s.mag, failed9s.warm_pix, marker='.', linestyle='')
+plt.subplot(324)
+plt.plot(acqrd9s.mag, acqrd9s.warm_pix, marker='.', linestyle='')
+plt.subplot(325)
+plt.plot(failed10s.mag, failed10s.warm_pix, marker='.', linestyle='')
+plt.subplot(326)
+plt.plot(acqrd10s.mag, acqrd10s.warm_pix, marker='.', linestyle='')
+fig.set_size_inches(15,15)
+fig.savefig('plots/scatter_mag_warmpix.png', type='png')
+plt.close()
+print "Plot: {0}... complete".format('plots/scatter_mag_warmpix.png')
+
+fig = plt.figure()
+plt.subplot(211)
+plt.plot(obs_failed.mag, obs_failed.warm_pix, marker='.', linestyle='')
+plt.subplot(212)
+plt.plot(obs_acq.mag, obs_acq.warm_pix, marker='.', linestyle='')
+fig.set_size_inches(20,10)
+fig.savefig('plots/scatter_mag_warmpixall.png', type='png')
+plt.close()
+print "Plot: {0}... complete".format('plots/scatter_mag_warmpixall.png')
+
+
+years = np.unique(acq_data.year)
+n_years = len(years)
+maxmag = np.max(acq_data.mag)
+minmag = np.min(acq_data.mag)
+maxwp = np.max(acq_data.warm_pix)
+minwp = np.min(acq_data.warm_pix)
+
+fig = plt.figure()
+for n, year in enumerate(years, 1):
+	left = n * 2 - 1
+	right = n * 2
+	yeardata = f.subset_pos(acq_data, 'year', year)
+	fail_yrd = f.subset_obcid(yeardata, "NOID")
+
+	plt.subplot(n_years, 2, left)
+	plt.plot(yeardata.mag, yeardata.warm_pix, marker='.', linestyle='')	
+	plt.xlim(minmag, maxmag)
+	plt.ylim(minwp, maxwp)
+
+	plt.subplot(n_years, 2, right)
+	plt.plot(fail_yrd.mag, fail_yrd.warm_pix, marker='.', linestyle='')
+	plt.xlim(minmag, maxmag)
+	plt.ylim(minwp, maxwp)
+	# print n, year, n_years
+
+fig.set_size_inches(10,25)
+fig.savefig('plots/scatter_long.png', type='png')
+plt.close()
+print "Plot: {0}... complete".format('plots/scatter_long.png')
+
+fig = plt.figure()
+plt.hist(obs_failed.mag, bins=20)
+fig.set_size_inches(10,5)
+fig.savefig('plots/hist_mags.png', type='png')
+plt.close()
+print "Plot: {0}... complete".format('plots/hist_mags.png')
+
+fig = plt.figure()
+for n, year in enumerate(years, 1):
+	left = n * 3 - 2
+	center = n * 3 - 1
+	right = n * 3
+	yeardata = f.subset_pos(acq_data, 'year', year)
+	fail_yrd = f.subset_obcid(yeardata, "NOID")
+
+	plt.subplot(n_years, 3, left)
+	plt.plot(yeardata.mag, yeardata.warm_pix, marker='.', linestyle='')	
+	plt.xlim(minmag, maxmag)
+	plt.ylim(minwp, maxwp)
+
+	plt.subplot(n_years, 3, center)
+	plt.plot(fail_yrd.mag, fail_yrd.warm_pix, marker='.', linestyle='')
+	plt.xlim(minmag, maxmag)
+	plt.ylim(minwp, maxwp)
+
+	plt.subplot(n_years, 3, right)
+	plt.hist(fail_yrd.mag, bins=20)
+	plt.xlim(minmag, maxmag)
+	
+	# print n, year, n_years
+
+fig.set_size_inches(10,25)
+fig.savefig('plots/scatter_long_AND_wide.png', type='png')
+plt.close()
+print "Plot: {0}... complete".format('plots/scatter_long_AND_wide.png')
+
+
+fig = plt.figure()
+mags_by_year = []
+pix_by_year = []
+for n, year in enumerate(years, 1):
+	yr_dat = f.subset_pos(obs_failed, 'year', year)
+	mags_by_year.append(yr_dat.mag)
+	pix_by_year.append(yr_dat.warm_pix)
+
+F = plt.figure()
+plt.boxplot(mags_by_year, vert=False)
+plt.yticks(np.arange(len(years))+1, years.astype(int).astype(str))
+F.set_size_inches(10,5)
+F.savefig("plots/mag_yeardist.png", type='png')
+plt.close()
+print("Plot: plots/yeardist.png... complete")
+
+
+F = plt.figure()
+plt.boxplot(pix_by_year, vert=False)
+plt.yticks(np.arange(len(years))+1, years.astype(int).astype(str))
+F.set_size_inches(10,5)
+F.savefig("plots/warmpix_yeardist.png", type='png')
+plt.close()
+print("Plot: plots/yeardist.png... complete")
 
