@@ -1,0 +1,103 @@
+20.0% of iterations complete40.0% of iterations complete60.0% of iterations complete80.0% of iterations complete100.0% of iterations complete
+5000 Simulations complete
+[[-3.2637079   1.70674502  0.87478871]
+ [-4.29553127  1.78002294  1.29504698]
+ [-6.37651223  2.0738161   2.29914594]
+ [-4.48768151  1.4551143   1.33780627]
+ [-5.07485888  1.49999372  1.42137117]
+ [-5.52787906  1.92844345  1.49102415]
+ [-5.30655371  1.99771685  1.53923568]
+ [-6.20748799  1.98922529  2.0067969 ]
+ [-4.25619388  1.357071    1.45155247]
+ [-4.44240959  1.63146536  1.46404927]]
+Wrote profile results to testbayes.py.lprof
+Timer unit: 1e-06 s
+
+File: bayesRegress.py
+Function: hhProbit at line 8
+Total time: 25.0231 s
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+     8                                           @profile
+     9                                           def hhProbit(yi, X, b, v, n_iter=10000):
+    10         1            4      4.0      0.0      X = X.transpose()
+    11         1            2      2.0      0.0      yi = yi.transpose()
+    12                                               """
+    13                                               This code attempts to implement the pseudo-code from the paper "Bayesian Auxiliary Variable Models for Binary and Multinomial Regression" by Chris C. Holmes and Leonhard Held from Bayesian Analysis, 2006.
+    14                                           
+    15                                               Model:
+    16                                           
+    17                                               yi ~ {0,1}. 1 if zi > 0, 0 o/w
+    18                                               zi ~ xi * beta + epsilon_i
+    19                                               epsilon_i ~ N(0,1)
+    20                                               beta ~ Pi(Beta) = N(0,v)
+    21                                           
+    22                                               Inputs: 
+    23                                           
+    24                                               yi: Vector of responses {0,1}
+    25                                               X: Design Matrix (Must include a vector of 1's if it is necessary for an intercept in the model)
+    26                                               b: Prior mean on Beta
+    27                                               v: Prior Variance on Beta
+    28                                               n_iter: Number of simulations to run
+    29                                           
+    30                                               """
+    31                                               # Getting the number of observations & parameters
+    32         1            2      2.0      0.0      n_para = X.shape[1]
+    33         1            2      2.0      0.0      n_obs = len(yi)
+    34                                           
+    35                                               #First record constants unaltered within MCMC loop
+    36         1          430    430.0      0.0      V = np.linalg.pinv(np.dot(X.transpose(), X) + np.linalg.pinv(v))
+    37         1           57     57.0      0.0      L = np.linalg.cholesky(V)  
+    38         1           39     39.0      0.0      S = np.dot(V, X.transpose())
+    39                                           
+    40                                               #For j=1 to number of observations
+    41         1            5      5.0      0.0      H = np.empty(n_obs)
+    42        40           66      1.6      0.0      for i in np.arange(n_obs):
+    43        39          297      7.6      0.0          H[i] = np.dot(X[i,:], S[:,i])
+    44                                               # H = (X * S).diagonal().transpose()
+    45         1           13     13.0      0.0      W = H / (1 - H)
+    46         1            8      8.0      0.0      Q = W + 1
+    47                                           
+    48                                               # Initialise latent variable Z, from truncated normal
+    49         1            4      4.0      0.0      Z = np.empty(n_obs).transpose()
+    50                                               # Z = np.array([stats.truncnorm.rvs(0., float('inf'), 0, 1) if y == 1 else stats.truncnorm.rvs(float('-inf'), 0., 0, 1) for y in yi]).transpose()
+    51        40           71      1.8      0.0      for i, y in enumerate(yi):
+    52        39           48      1.2      0.0          if y:
+    53        20         1733     86.7      0.0              Z[i] = stats.truncnorm.rvs(0., float('inf'), 0, 1)
+    54                                                   else:
+    55        19         1506     79.3      0.0              Z[i] = stats.truncnorm.rvs(float('-inf'), 0., 0, 1)
+    56                                           
+    57                                               ### Holmes and Held says to initialize Z ~ N(0, I_n)Ind(Y,Z).
+    58                                               ### Instead of sampling from a multivariate truncated normal,
+    59                                               ### the above is used since each Zi, Zj is independent by the 
+    60                                               ### specification of the identity matrix as the variance.
+    61                                               ### I really hope this assumption holds......
+    62                                           
+    63         1            5      5.0      0.0      B = np.dot(S,Z)
+    64                                               # B denotes the conditional mean of \beta
+    65                                           
+    66                                               # n_iter = 10000
+    67         1            2      2.0      0.0      low, mid, high = float('-inf'), 0., float('inf')
+    68         1            4      4.0      0.0      betas = np.empty(n_para)
+    69      5001        11609      2.3      0.0      for i in np.arange(n_iter):
+    70      5000        76341     15.3      0.3          if (i+1) % 1000. == 0.:
+    71         5          249     49.8      0.0              f.progress(i+1, n_iter)
+    72      5000        44602      8.9      0.2          z_old = copy.copy(Z)
+    73    200000       387197      1.9      1.5          for j in np.arange(n_obs):
+    74    195000      1357190      7.0      5.4              m = np.dot(X[j,:],B)
+    75    195000      1214335      6.2      4.9              m = m - np.dot(W[j],(Z[j] - m))
+    76    195000       363650      1.9      1.5              if yi[j]:
+    77    100000      9214543     92.1     36.8                  Z[j] = stats.truncnorm.rvs((mid - m) / Q[j], (high - m) / Q[j], loc=m, scale=Q[j])
+    78                                                       else:
+    79     95000      8702789     91.6     34.8                  Z[j] = stats.truncnorm.rvs((low - m) / Q[j], (mid - m) / Q[j], loc=m, scale=Q[j])
+    80                                           
+    81    195000      2487148     12.8      9.9              B = B + np.float((Z[j] - z_old[j]))*S[:,j]
+    82                                           
+    83      5000       942922    188.6      3.8          T = stats.multivariate_normal.rvs(np.zeros(n_para), np.identity(n_para), 1).transpose()
+    84      5000        41759      8.4      0.2          beta_i = (B + np.dot(L,T)).transpose()
+    85      5000       171968     34.4      0.7          betas = np.vstack((betas, beta_i))
+    86         1           13     13.0      0.0      print "\n{0} Simulations complete".format(n_iter)
+    87         1            5      5.0      0.0      betas = betas[1:,:]
+    88         1         2463   2463.0      0.0      print betas[0:10,:]
+
