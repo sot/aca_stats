@@ -93,58 +93,54 @@ def hhProbit(yi, X, b, v, n_iter=10000):
     print beta_means[-1,:]
     return betas, beta_means
 
-
-def IRWLS(yi, X, link='logit', tol=1e-8, max_iter=1000):
+def IRWLS(yi, X, link='logit', tol=1e-2, max_iter=100):
     """
     Iteratively Re-Weighted Least Squares
     """
     npar, nobs = X.shape
     X = X.transpose()
     yi = yi.transpose()     
-    W = np.identity(nobs)       # Initial Weights set to 1 - OLS
-    
+    W = np.identity(nobs) 
+
     #OLS Step 
-    betas_old = wls(X,W,yi)
+    beta_start = betas = wls(X,W,yi)
     
-    # Calculating initial probabilities based on choice of link function
-    if link == 'logit':
-        pi = invlogit(np.dot(X, betas_old))
-    elif link == 'probit':
-        pi = stats.norm.cdf(np.dot(X, betas_old))
-    
-    # Iterating until convergance
-    step = 0
-    while step < max_iter:
-        W = np.diag((pi * (1 - pi))) #Updating Weights based on newest pi
-        z = workingresponse(X, betas_old, W, yi, pi) # Calculating the working response
-        
-        beta_new = wls(X, W, z) #Updating beta based on the working response
-        
-        pi_old = pi.copy() #Copying pi in order to do comparisons later
-        
-        #Calculating new probabilities based on updated beta
-        if link == 'logit':
-            pi = invlogit(np.dot(X, beta_new))
-        elif link == 'probit':
-            pi = stats.norm.cdf(np.dot(X, beta_new))
-        
-        #Comparing previous log-likelihood with current log-likelihood.  Trying to minimize this function....
-        print loglike(yi, pi) > loglike(yi, pi_old)
-        if not loglike(yi, pi) > loglike(yi, pi_old) and np.sum(np.abs(beta_new - betas_old)) < tol:
-            variance = np.linalg.pinv(X.transpose().dot(W).dot(X))
-            print "Converged at Step {0}...".format(step)
-            print beta_new
-            print np.sqrt(np.diagonal(variance))
-            return beta_new, variance
+    lstart = lold = binLklihood(X, yi, beta_start, link)
+    delt = betaDelta(lold)
+    step = 0.0
+    while np.sum(np.abs(delt)) > tol and step < max_iter:
+        step += 1
+        delt = betaDelta(lold)
+        lnew = binLklihood(X, yi, betas + delt, link)
+        if lnew.likelihood < lold.likelihood:
+            delt = delt/2.
+            betas = betas + delt
+            lold = binLklihood(X,yi,betas,link)
         else:
-            betas_old = beta_new.copy()
-            step += 1
-    variance = np.linalg.pinv(X.transpose().dot(W).dot(X))
-    print pi
-    print beta_new
-    print "Did not converge..."
-    return beta_new, variance
+            betas = betas + delt
+            lold = binLklihood(X,yi,betas,link)
         
+    print betas, step
+
+class binLklihood:
+    def __init__(self, X, y, betas, link='logit'):
+        self.X = X
+        self.y = y
+        self.betas = betas
+        self.link = link
+        if link == 'logit':
+            self.pi = invlogit(np.dot(X, betas))
+        elif link == 'probit':
+            self.pi = stats.norm.cdf(np.dot(X, betas))
+        self.W = np.diag(self.pi*(1 - self.pi))
+        self.likelihood = loglike(self.y, self.pi)
+        self.score = X.transpose().dot((y - self.pi))
+        self.information = X.transpose().dot(self.W).dot(X)
+
+
+def betaDelta(binlk):
+    return np.linalg.pinv(binlk.information).dot(binlk.score)
+
 
 def invlogit(val):
     """
@@ -160,29 +156,12 @@ def wls(X, W, yi):
     XtWy = X.transpose().dot(W).dot(yi)
     return np.linalg.pinv(XtWX).dot(XtWy)
 
-def workingresponse(X, beta, W, y, p):
-    """
-    Calculating the working response for use in IRWLS
-    """
-    return np.dot(X, beta) + np.dot(np.linalg.pinv(W), (y-p))
-
 def loglike(yi, pi):
     """
     Binary Log-Likelihood
     """
     vect_loglike = yi*np.log(pi) + (1-yi)*np.log(1-pi)
     return np.sum(vect_loglike)
-
-
-
-
-
-
-
-
-
-
-
 
 #############################################################################
 #
