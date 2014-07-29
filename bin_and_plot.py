@@ -16,10 +16,10 @@ acq_data = f.add_column(acq_data, 'mag_floor' , np.zeros(len(acq_data)))
 acq_data = f.add_column(acq_data, 'year' , np.zeros(len(acq_data)))
 acq_data['tstart_jyear'] = Time(acq_data['tstart'], format='cxcsec').jyear
 acq_data['year'] = np.floor(acq_data.tstart_jyear)
+acq_data['mag_floor'] = np.floor(acq_data['mag'])
 
 for acq in acq_data:
     acq.tstart_quarter = f.quarter_bin(acq.tstart_jyear)
-    acq.mag_floor = np.floor(acq.mag)
 
 
 #Function to calculate Acquistions by Quarter
@@ -36,6 +36,7 @@ def acq_byquarter(arr, mag=None):
     else:
         for q in quarters:
             failures = len(np.where((arr.tstart_quarter == q) & (arr.obc_id == "NOID") & (arr.mag_floor == mag))[0])
+            print failures, mag
             counts = len(np.where((arr.tstart_quarter == q) & (arr.mag_floor == mag))[0])
             failure_counts.append(float(failures))
             obs_counts.append(float(counts))
@@ -47,17 +48,17 @@ mag8 = acq_byquarter(acq_data, mag=8.0)
 mag9 = acq_byquarter(acq_data, mag=9.0)
 mag10 = acq_byquarter(acq_data, mag=10.0)
 
-subset_mag9 = f.subset_by_mag(acq_data, 9.0)
-subset_mag10 = f.subset_by_mag(acq_data, 10.0)
+subset_mag9 = f.smlset(acq_data, 'mag_floor', 9.0)
+subset_mag10 = f.smlset(acq_data, 'mag_floor', 10.0)
 
-obs_failed = f.subset_obcid(acq_data, "NOID")
-obs_acq = f.subset_obcid(acq_data, "ID")
+obs_failed = f.smlset(acq_data, 'obc_id', "NOID")
+obs_acq = f.smlset(acq_data, 'obc_id', "ID")
 
-failed9s = f.subset_obcid(subset_mag9, "NOID")
-acqrd9s = f.subset_obcid(subset_mag9, "ID")
+failed9s = f.smlset(subset_mag9, 'obc_id', "NOID")
+acqrd9s = f.smlset(subset_mag9, 'obc_id', "ID")
 
-failed10s = f.subset_obcid(subset_mag10, "NOID")
-acqrd10s = f.subset_obcid(subset_mag10, "ID")
+failed10s = f.smlset(subset_mag10, 'obc_id', "NOID")
+acqrd10s = f.smlset(subset_mag10, 'obc_id', "ID")
 
 darkvals = genfromtxt('data/N100.csv', dtype=None, delimiter='\t', names=True)
 
