@@ -5,7 +5,7 @@ import functions as f
 import scipy.stats as stats
 import statsmodels.api as sm
 
-@profile
+# @profile
 def hhProbit(yi, X, b, v, n_iter=10000):
     X = X.transpose()
     yi = yi.transpose()
@@ -66,6 +66,7 @@ def hhProbit(yi, X, b, v, n_iter=10000):
     # n_iter = 10000
     low, mid, high = float('-inf'), 0., float('inf')
     betas = np.empty(n_para)
+    beta_means = np.empty(n_para)
     for i in np.arange(n_iter):
         if (i+1) % 1000. == 0.:
             f.progress(i+1, n_iter)
@@ -74,32 +75,66 @@ def hhProbit(yi, X, b, v, n_iter=10000):
             m = np.dot(X[j,:],B)
             m = m - np.dot(W[j],(Z[j] - m))
             if yi[j]:
-                Z[j] = stats.truncnorm.rvs((mid - m) / Q[j], (high - m) / Q[j], loc=m, scale=Q[j])
+                Z[j] = stats.truncnorm.rvs((mid - m)/Q[j], (high - m)/Q[j], loc=m, scale=Q[j])
             else:
-                Z[j] = stats.truncnorm.rvs((low - m) / Q[j], (mid - m) / Q[j], loc=m, scale=Q[j])
-
+                Z[j] = stats.truncnorm.rvs((low - m)/Q[j], (mid - m)/Q[j], loc=m, scale=Q[j])
+            
             B = B + np.dot((Z[j] - z_old[j]), S[:,j])
 
         T = stats.multivariate_normal.rvs(np.zeros(n_para), np.identity(n_para), 1).transpose()
         beta_i = (B + np.dot(L,T)).transpose()
+        # print np.mean(betas, axis=0)
         betas = np.vstack((betas, beta_i))
+        if i >= 5:
+            beta_means = np.vstack((beta_means, np.mean(betas[5:,:], axis=0)))
     print "\n{0} Simulations complete".format(n_iter)
     betas = betas[1:,:]
     print betas[0:10,:]
+    return betas, beta_means
 
 
+def IRWLS(yi, X, tol=1e-8, max_iter=1000):
+    npar, nobs = X.shape
+    X = X.transpose()
+    yi = yi.transpose()
+    W = np.identity(nobs)
+    #OLS Step 
+    betas_old = wls(X,W,yi)
+    step = 0
+    while step < max_iter:
+        pi = invlogit(np.dot(X, betas_old))
+        W = (pi * (1 - pi)) * np.identity(nobs)
+        z = workingresponse(X, betas_old, W, yi, pi)
+        beta_new = wls(X, W, z)
+        print loglike(yi, invlogit(np.dot(X, beta_new))) > loglike(yi, invlogit(np.dot(X, betas_old)))
+        if not loglike(yi, invlogit(np.dot(X, beta_new))) > loglike(yi, invlogit(np.dot(X, betas_old))) and np.sum(np.abs(beta_new - betas_old)) < tol:
+            variance = np.linalg.pinv(X.transpose().dot(W).dot(X))
+            print "Converged at Step {0}...".format(step)
+            print beta_new
+            print np.sqrt(np.diagonal(variance))
+            return beta_new, variance
+        else:
+            betas_old = beta_new.copy()
+            step += 1
+    print beta_new
+    print "Did not converge..."
+    return 
+        
 
+def invlogit(val):
+    return np.exp(val) / (np.exp(val) + 1)
 
+def wls(X, W, yi):
+    XtWX = X.transpose().dot(W).dot(X) 
+    XtWy = X.transpose().dot(W).dot(yi)
+    return np.linalg.pinv(XtWX).dot(XtWy)
 
+def workingresponse(X, beta, W, y, p):
+    return np.dot(X, beta) + np.dot(np.linalg.pinv(W), (y-p))
 
-
-
-
-
-
-
-
-
+def loglike(yi, pi):
+    vect_loglike = yi*np.log(pi) + (1-yi)*np.log(1-pi)
+    return np.sum(vect_loglike)
 
 
 
