@@ -5,10 +5,95 @@ import matplotlib.pyplot as plt
 import scipy.stats as stats
 import truncated_norm_C as tnC
 
-# @profile
-def hhProbit(np.ndarray[long, ndim=1] yi, np.ndarray[double, ndim=2] X, np.ndarray[double, ndim=1] b, np.ndarray[double, ndim=2] v, int n_iter=10000):
-    X = X.transpose()
-    yi = yi.transpose()
+
+class probitRegression:
+    def __init__(self, function, dset, b=False, v=False, simulate=True, n_iter=5000, burnin=500, plots=False, identifier='dataset'):
+        self.y, self.X, self.betanames = makeDesign(function, dset)
+        self.function = function
+        self.burnin = burnin
+        self.identifier = identifier
+        self.npar = len(self.betanames)
+        
+        #Setting non-informative priors if non were specified
+        if not b:
+            self.prior_b = np.zeros(self.npar)
+        else:
+            self.prior_b = b
+        
+        if not v:
+            self.prior_v = 100 * np.identity(self.npar)
+        else:
+            self.prior_v = v
+        
+        print """
+Output for: {0}
+Model     : {1}
+            """.format(identifier,function)
+        #If simulation set to true, performing bayesian probit regression
+        if simulate:
+            self.betadraws, self.beta_means = hhProbit(self.y, self.X, self.prior_b, self.prior_v, n_iter)
+            self.bayes_betas = np.mean(self.betadraws[burnin:,:], axis=0)
+            self.bayes_sd = np.std(self.betadraws[burnin:,:], axis=0)
+            self.bayes_lklhd = binLklihood(self.X, self.y, self.bayes_betas, 'probit')
+            self.bayes_predict = self.bayes_lklhd.pi
+            print """\nSimulation Results ({0} Iterations w/ {1} Burn In):
+\nMethod: Bayesian Binary Probit Regression - Holmes and Held (2006)""".format(n_iter, burnin)
+            self.printCoefficients(self.bayes_betas, self.bayes_sd, self.betanames)
+            
+
+        #Performing Maximum Likelihood Estimates via IRLS
+        self.ML_betas, self.ML_var = IRWLS(self.y, self.X, link='probit', tol=1e-6, max_iter=100, verbose=False)
+        self.ML_sd = np.sqrt(np.diagonal(self.ML_var))
+        print """\nMethod: Maximum Likelihood - Iteratively Reweighted Least Squares""".format(n_iter, burnin)
+        self.printCoefficients(self.ML_betas, self.ML_sd, self.betanames)
+        
+        
+        self.ML_lklhd = binLklihood(self.X, self.y, self.ML_betas, 'probit')
+        self.irwls_predict = self.ML_lklhd.pi
+
+        self.calcPredictionAccuracy()
+
+        #If they want plots... they'll get plots!
+        if plots:
+            self.plotBetas()
+
+        
+
+    def calcPredictionAccuracy(self):
+        count = 0.
+        count2 = 0.
+        for i in np.arange(len(self.y)):
+            if self.y[i] == 1 and self.bayes_predict[i] <= 0.5:
+                count += 1.
+            if self.y[i] == 0 and self.bayes_predict[i] >= 0.5:
+                count += 1.
+    
+            if self.y[i] == 1 and self.irwls_predict[i] <= 0.5:
+                count2 += 1.
+            if self.y[i] == 0 and self.irwls_predict[i] >= 0.5:
+                count2 += 1.
+
+        print """
+Bayes Classification Rate: {0}
+IRWLS Classification Rate: {1}
+        """.format((1 - count/len(self.y)), (1 - count2/len(self.y)))
+
+    def plotBetas(self):
+        for beta in np.arange(self.npar):
+            betasplot(self.betadraws, self.beta_means, beta, self.burnin, self.identifier, 'beta{0}'.format(beta))
+
+    def printCoefficients(self, est, sds, vnames):
+        print "\nCoefficient            Estimate     StdErr     z-Score      pValue"
+        for i, n in enumerate(vnames):
+            zscore = est[i]/sds[i]
+            pval = 2.*(1. - stats.norm.cdf(np.abs(zscore)))
+            print "{0:<20}  {1: 6.3e}  {2: 6.3e}  {3: 6.2e}   {4: 6.3e}".format(n, est[i], sds[i], zscore, pval)
+        print
+        
+
+
+
+def hhProbit(yi, X, b, v, n_iter=10000):
     """
     This code attempts to implement the pseudo-code from the paper "Bayesian Auxiliary Variable Models for Binary and Multinomial Regression" by Chris C. Holmes and Leonhard Held from Bayesian Analysis, 2006.
 
@@ -29,25 +114,25 @@ def hhProbit(np.ndarray[long, ndim=1] yi, np.ndarray[double, ndim=2] X, np.ndarr
 
     """
     # Getting the number of observations & parameters
-    cdef int n_para = X.shape[1]
-    cdef int n_obs = len(yi)
+    n_para = X.shape[1]
+    n_obs = len(yi)
 
     #First record constants unaltered within MCMC loop
-    cdef np.ndarray[double, ndim=2] V = np.linalg.pinv(np.dot(X.transpose(), X) + np.linalg.pinv(v))
-    cdef np.ndarray[double, ndim=2] L = np.linalg.cholesky(V)  
-    cdef np.ndarray[double, ndim=2] S = np.dot(V, X.transpose())
+    V = np.linalg.pinv(np.dot(X.transpose(), X) + np.linalg.pinv(v))
+    L = np.linalg.cholesky(V)  
+    S = np.dot(V, X.transpose())
 
     #For j=1 to number of observations
-    cdef np.ndarray[double, ndim=1] H = np.empty(dtype=float, shape=(n_obs))
+    H = np.empty(dtype=float, shape=(n_obs))
     
     for i in np.arange(n_obs):
         H[i] = np.dot(X[i,:], S[:,i])
     
-    cdef np.ndarray[double, ndim=1] W = H / (1 - H)
-    cdef np.ndarray[double, ndim=1] Q = W + 1
+    W = H / (1 - H)
+    Q = W + 1
 
     # Initialise latent variable Z, from truncated normal
-    cdef np.ndarray[double, ndim=1] Z = np.empty(n_obs).transpose()
+    Z = np.empty(n_obs).transpose()
 
     for i, y in enumerate(yi):
         if y:
@@ -61,20 +146,17 @@ def hhProbit(np.ndarray[long, ndim=1] yi, np.ndarray[double, ndim=2] X, np.ndarr
     ### specification of the identity matrix as the variance.
     ### I really hope this assumption holds......
 
-    cdef np.ndarray[double, ndim=1] B = np.dot(S,Z)
+    B = np.dot(S,Z)
     # B denotes the conditional mean of \beta
 
-    # n_iter = 10000
-    low, mid, high = float('-inf'), 0., float('inf')
     betas = np.empty(n_para)
     beta_means = np.empty(n_para)
     
-    cdef np.ndarray[double, ndim=1] z_old
-    cdef float m
-    
+    progress(0., n_iter)    
+    progresscheck = int(n_iter * 0.1)
 
     for i in np.arange(n_iter):
-        if (i+1) % 1000. == 0.:
+        if (i+1) % progresscheck == 0.:
             progress(i+1, n_iter)
         z_old = copy.copy(Z)
         for j in np.arange(n_obs):
@@ -89,23 +171,19 @@ def hhProbit(np.ndarray[long, ndim=1] yi, np.ndarray[double, ndim=2] X, np.ndarr
 
         T = stats.multivariate_normal.rvs(np.zeros(n_para), np.identity(n_para), 1).transpose()
         beta_i = (B + np.dot(L,T)).transpose()
-        # print np.mean(betas, axis=0)
         betas = np.vstack((betas, beta_i))
+
         if i >= 5:
             beta_means = np.vstack((beta_means, np.mean(betas[5:,:], axis=0)))
-    print "\n{0} Simulations complete".format(n_iter)
-    betas = betas[1:,:]
-    print betas[0:10,:]
-    print beta_means[-1,:]
+
+    betas = betas[2:,:]
     return betas, beta_means
 
-def IRWLS(yi, X, link='logit', tol=1e-2, max_iter=100, verbose=False):
+def IRWLS(yi, X, link='logit', tol=1e-8, max_iter=100, verbose=False):
     """
     Iteratively Re-Weighted Least Squares
     """
-    npar, nobs = X.shape
-    X = X.transpose()
-    yi = yi.transpose()     
+    nobs, npar = X.shape   
     W = np.identity(nobs) 
 
     #Ordinary Least Squares as first Beta Guess
@@ -127,7 +205,7 @@ def IRWLS(yi, X, link='logit', tol=1e-2, max_iter=100, verbose=False):
             lold = binLklihood(X,yi,betas,link)
         if verbose:
             print """Step {0}: \nLikelihood: {1}""".format(step, lold.likelihood)
-    variance = np.linalg.pinv(lold.information)
+    variance = lold.variance
     return betas, variance
 
 class binLklihood:
@@ -144,7 +222,81 @@ class binLklihood:
         self.likelihood = loglike(self.y, self.pi)
         self.score = X.transpose().dot((y - self.pi))
         self.information = X.transpose().dot(self.W).dot(X)
+        # print np.diag(np.sqrt(partA))
+        self.variance = np.linalg.pinv(self.information) / 4.0
 
+
+def makeDesign(formula, dataset, intercept=True):
+    """
+    This function attempts to implement an R like funtionality for formulas for linear regression using numpy arrays.  
+
+    Inputs: formula, dataset
+    Outputs: Response Matrix, Design Matrix, Names of Design Matrix
+    Usage: 
+    formula: "chd ~ log(sbp) + tobacco + ldl + famhist + obesity + alcohol + age"
+    dataset: safr = np.genfromtxt('data/southAfrica.csv', dtype=None, delimiter=',', names=True)
+    """
+    #Making a list of available covariates from the dataset
+    dataSetNames = dataset.dtype.names
+    availableNames = [name.strip() for name in dataset.dtype.names]
+    
+    #Breaking down the formula into a list of actions
+    response, rightside = formula.split('~')
+    response = response.strip()
+
+    #Finding Reponse Transformations if there are any
+    if len(response.strip(')').split('(')) == 2:
+        response_transform = response.strip(')').split('(')[0]  
+        response = response.strip(')').split('(')[1]  
+    else: 
+        response_transform = False 
+
+    #Processing the covariates
+    rightside = [cov.strip() for cov in rightside.split('+')]
+    transforms = [cov.strip(')').split('(')[0] if len(cov.strip(')').split('(')) == 2 else False for cov in rightside]
+    covariates = [cov.strip(')').split('(')[1] if len(cov.strip(')').split('(')) == 2 else cov for cov in rightside]
+    
+    #### DEALING WITH THE RESPONSE
+    if response in availableNames:
+        if response_transform:
+            print "\nError: Nope cant do that yet... Transformations forthcoming\n"
+            sys.exit()
+        if dataset[response].dtype.char in ['S', 'U', 'V']:
+            print "Sorry cannot handle string responses types...YET!!!!"
+        else:
+            response = dataset[response].transpose()
+
+    else:
+        printErrorAvailableCovariates(response, dataSetNames)
+
+    #### DEALING WITH THE COVARIATES
+    design = np.ones(len(response))
+    variablenames = ['(Intercept)']
+
+    for pos, cov in enumerate(covariates):
+        if cov in availableNames:
+            if transforms[pos]:
+                print "\nError: Nope cant do that yet... Transformations forthcoming\n"
+                sys.exit()
+            if dataset[cov].dtype.char in ['S', 'U', 'V']:
+                types = np.unique(dataset[cov])[1:]
+                for t in types:
+                    data = [1. if i == t else 0. for i in dataset[cov]]
+                    design = np.vstack((design, data))
+                    variablenames.append("{0}::{1}".format(cov, t))
+            else:
+                design = np.vstack((design, dataset[cov]))
+                variablenames.append(cov)
+        else:
+            printErrorAvailableCovariates(cov, dataSetNames)
+    return response, design.transpose(), variablenames
+
+def printErrorAvailableCovariates(notfound, available):
+    print """\nError: '{0}' was not found in the dataset provided.\n\nAvailable Covariates:""".format(notfound)
+    for a in available:
+        print """\t{0}""".format(a)
+    print
+    sys.exit()
 
 def betaDelta(binlk):
     """
@@ -174,135 +326,35 @@ def loglike(yi, pi):
     vect_loglike = yi*np.log(pi) + (1-yi)*np.log(1-pi)
     return np.sum(vect_loglike)
 
-# def hhProbit(np.ndarray[long, ndim=1] yi, np.ndarray[double, ndim=2] X, np.ndarray[double, ndim=1] b, np.ndarray[double, ndim=2] v, int n_iter=10000):
-#     """
-#     This code attempts to implement the pseudo-code from the paper "Bayesian Auxiliary Variable Models for Binary and Multinomial Regression" by Chris C. Holmes and Leonhard Held from Bayesian Analysis, 2006.
-
-#     Model:
-
-#     yi ~ {0,1}. 1 if zi > 0, 0 o/w
-#     zi ~ xi * beta + epsilon_i
-#     epsilon_i ~ N(0,1)
-#     beta ~ Pi(Beta) = N(0,v)
-
-#     Inputs: 
-
-#     yi: Vector of responses {0,1}
-#     X: Design Matrix (Must include a vector of 1's if it is necessary for an intercept in the model)
-#     b: Prior mean on Beta
-#     v: Prior Variance on Beta
-#     n_iter: Number of simulations to run
-
-#     """
-#     X = X.transpose()
-#     yi = yi.transpose()
-
-#     # Getting the number of observations & parameters
-#     cdef int n_para = X.shape[1]
-#     cdef int n_obs = len(yi)
-
-#     #First record constants unaltered within MCMC loop
-#     V = np.linalg.pinv(np.dot(X.transpose(), X) + np.linalg.pinv(v))
-#     L = np.linalg.cholesky(V)  
-#     S = np.dot(V, X.transpose())
-    
-#     #For j=1 to number of observations
-#     cdef np.ndarray[double, ndim=1] H = np.empty(dtype=float, shape=(n_obs))
-    
-
-#     for i in xrange(n_obs):
-#         H[i] = np.dot(X[i,:], S[:,i])
-#     print H
-#     # H = (X * S).diagonal().transpose()
-#     cdef np.ndarray[double, ndim=1] W = H / (1 - H)
-#     cdef np.ndarray[double, ndim=1] Q = W + 1
-
-
-#     # Initialise latent variable Z, from truncated normal
-#     cdef np.ndarray[double, ndim=1] Z = np.empty(dtype=float, shape=n_obs)
-
-#     for i, y in enumerate(yi):
-#         if y:
-#             Z[i] = stats.truncnorm.rvs(0., float('inf'), 0, 1)
-#         else:
-#             Z[i] = stats.truncnorm.rvs(float('-inf'), 0., 0, 1)
-
-    
-#     # ### Holmes and Held says to initialize Z ~ N(0, I_n)Ind(Y,Z).
-#     # ### Instead of sampling from a multivariate truncated normal,
-#     # ### the above is used since each Zi, Zj is independent by the 
-#     # ### specification of the identity matrix as the variance.
-#     # ### I really hope this assumption holds......
-
-#     cdef np.ndarray[double, ndim=1] B = np.dot(S,Z)
-#     # B denotes the conditional mean of \beta
-
-#     # n_iter = 10000
-#     cdef double low = float('-inf')
-#     cdef double mid = 0.0
-#     cdef double high = float('inf')
-
-#     cdef np.ndarray[double, ndim=2] betas = np.empty(dtype='float', shape=(1, n_para))
-    
-#     cdef np.ndarray[double, ndim=1] z_old = Z
-
-#     for i in xrange(n_iter):
-#         if (i+1) % 1000. == 0.:
-#             progress(i+1, n_iter)
-        
-#         z_old = Z
-
-#         for j in xrange(n_obs):
-#             m = np.dot(X[j,:],B)
-#             m = m - np.dot(W[j],(Z[j] - m))
-#             if yi[j]:
-#                 Z[j] = stats.truncnorm.rvs((mid - m) / Q[j], (high - m) / Q[j], loc=m, scale=Q[j])
-#             else:
-#                 Z[j] = stats.truncnorm.rvs((low - m) / Q[j], (mid - m) / Q[j], loc=m, scale=Q[j])
-
-#             B = B + np.dot((Z[j] - z_old[j]), S[:,j])
-
-#         T = stats.multivariate_normal.rvs(np.zeros(n_para), np.identity(n_para), 1).transpose()
-#         beta_i = (B + np.dot(L,T)).transpose()
-#         # print beta_i
-#         betas = np.vstack((betas, beta_i))
-#     print "\n{0} Simulations complete".format(n_iter)
-#     betas = betas[1:,:]
-#     print betas[0:,:]
-
 def progress(int n, int n_iters):
     cdef float out = np.float(n)/np.float(n_iters) * 100.
     sys.stdout.write("\r{0:.1f}% of iterations complete".format(out))
     sys.stdout.flush()
     return
 
+def betasplot(betas, means, col, burn, dsetname, fname):
+    fig = plt.figure()
+    plt.subplot(311)
+    plt.hist(betas[burn:,col], bins=20, normed=True)
+    plt.xlabel('Beta {} Distribution'.format(col))
+    plt.subplot(312)
+    plt.plot(betas[:,col], marker='', linestyle='-')
+    plt.ylabel('Beta {0} Value'.format(col))
+    plt.xlabel('Simulation')
+    plt.subplot(313)
+    plt.plot(means[:,col], marker='', linestyle='-')
+    plt.xlabel('Simulation')
+    plt.ylabel('Beta{0} Posterior Mean'.format(col))
+    fig.set_size_inches(10,10)
+    fig.savefig('{0}_{1}.png'.format(dsetname, fname), type='png')
+    plt.close()
+
+
+
 #############################################################################
 #
-# Examples and Test Data
+# Usage Examples
 #
 #############################################################################
 
-# # # #### Testing Finney Dataset
-# finney47 = np.genfromtxt('data/finney1947.csv', dtype=None, delimiter=',', names=True)
 
-# yi = finney47['Y']
-
-# design = np.vstack((np.ones(len(finney47)), finney47['Volume'], finney47['Rate']))
-# b = np.zeros(3)
-# v = 100 * np.identity(3)
-
-# #### Testing Pima Indians Dataset
-# # pimaIndians = np.genfromtxt('data/PimaIndians.csv', dtype=None, delimiter=',', names=True)
-
-# # yi = np.matrix(pimaIndians['type']).T
-
-# # design = np.matrix(np.vstack((np.ones(len(pimaIndians)), pimaIndians['npreg'], pimaIndians['glu'],  pimaIndians['bp'], pimaIndians['skin'], pimaIndians['bmi'], pimaIndians['ped'], pimaIndians['age'])).transpose())
-
-# # print design.shape[1]
-
-# # b = np.matrix(np.zeros(8)).transpose()
-# # v = np.matrix(100 * np.identity(8))
-
-# hhProbit(yi, design, b, v, 10000)
-
-# np.array([i + 1 if i==1 else i-1 for i in test])
