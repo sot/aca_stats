@@ -31,7 +31,7 @@ import cython
 pimaIndians = np.genfromtxt('data/PimaIndians.csv', dtype=None, delimiter=',', names=True)
 
 pimafunction = "type ~ npreg + glu + bp + skin + bmi + ped + age"
-pima_fit = bR.probitRegression(pimafunction, pimaIndians, n_iter=2000, burnin=200, plots=False, identifier="pima")
+pima_fit = bR.probitRegression(pimafunction, pimaIndians, n_iter=2000, burnin=200, calcIRWLS = False, plots=False, identifier="pima")
 
 #############################################################################
 #
@@ -39,10 +39,10 @@ pima_fit = bR.probitRegression(pimafunction, pimaIndians, n_iter=2000, burnin=20
 #
 #############################################################################
 
-safr = np.genfromtxt('data/southAfrica.csv', dtype=None, delimiter=',', names=True)
+# safr = np.genfromtxt('data/southAfrica.csv', dtype=None, delimiter=',', names=True)
 
-SAfunction = "chd ~ sbp + tobacco + ldl + famhist + obesity + alcohol + age"
+# SAfunction = "chd ~ sbp + tobacco + ldl + famhist + obesity + alcohol + age"
 
-sa_fit = bR.probitRegression(SAfunction, safr, n_iter=5000, burnin=500, plots=True, identifier="southAfrica")
+# sa_fit = bR.probitRegression(SAfunction, safr, n_iter=5000, burnin=500, plots=True, identifier="southAfrica")
 
 

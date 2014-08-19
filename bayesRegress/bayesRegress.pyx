@@ -4,15 +4,17 @@ cimport numpy as np
 import matplotlib.pyplot as plt
 import scipy.stats as stats
 import truncated_norm_C as tnC
-
+import patsy as patc
 
 class probitRegression:
-    def __init__(self, function, dset, b=False, v=False, simulate=True, n_iter=5000, burnin=500, plots=False, identifier='dataset'):
+    def __init__(self, function, dset, b=False, v=False, simulate=True, n_iter=5000, burnin=500, calcIRWLS=True, plots=False, identifier='dataset'):
         self.y, self.X, self.betanames = makeDesign(function, dset)
         self.function = function
         self.burnin = burnin
         self.identifier = identifier
         self.npar = len(self.betanames)
+        self.simulate = simulate
+        self.calcIRWLS = calcIRWLS
         
         #Setting non-informative priors if non were specified
         if not b:
@@ -42,16 +44,17 @@ Model     : {1}
             
 
         #Performing Maximum Likelihood Estimates via IRLS
-        self.ML_betas, self.ML_var = IRWLS(self.y, self.X, link='probit', tol=1e-6, max_iter=100, verbose=False)
-        self.ML_sd = np.sqrt(np.diagonal(self.ML_var))
-        print """\nMethod: Maximum Likelihood - Iteratively Reweighted Least Squares""".format(n_iter, burnin)
-        self.printCoefficients(self.ML_betas, self.ML_sd, self.betanames)
+        if calcIRWLS:
+            self.ML_betas, self.ML_var = IRWLS(self.y, self.X, link='probit', tol=1e-6, max_iter=100, verbose=True)
+            self.ML_sd = np.sqrt(np.diagonal(self.ML_var))
+            print """\nMethod: Maximum Likelihood - Iteratively Reweighted Least Squares""".format(n_iter, burnin)
+            self.printCoefficients(self.ML_betas, self.ML_sd, self.betanames)
         
         
-        self.ML_lklhd = binLklihood(self.X, self.y, self.ML_betas, 'probit')
-        self.irwls_predict = self.ML_lklhd.pi
+            self.ML_lklhd = binLklihood(self.X, self.y, self.ML_betas, 'probit')
+            self.irwls_predict = self.ML_lklhd.pi
 
-        self.calcPredictionAccuracy()
+        # self.calcPredictionAccuracy()
 
         #If they want plots... they'll get plots!
         if plots:
@@ -60,23 +63,58 @@ Model     : {1}
         
 
     def calcPredictionAccuracy(self):
-        count = 0.
-        count2 = 0.
+        self.bayes_pos_correct = 0.
+        self.bayes_neg_correct = 0.
+        self.bayes_pos_wrong = 0.
+        self.bayes_neg_wrong = 0.
+        
+        self.irwls_pos_correct = 0.
+        self.irwls_neg_correct = 0.
+        self.irwls_pos_wrong = 0.
+        self.irwls_neg_wrong = 0.
+        
         for i in np.arange(len(self.y)):
-            if self.y[i] == 1 and self.bayes_predict[i] <= 0.5:
-                count += 1.
-            if self.y[i] == 0 and self.bayes_predict[i] >= 0.5:
-                count += 1.
-    
-            if self.y[i] == 1 and self.irwls_predict[i] <= 0.5:
-                count2 += 1.
-            if self.y[i] == 0 and self.irwls_predict[i] >= 0.5:
-                count2 += 1.
+            if self.simulate:
+                if self.y[i] == 1 and self.bayes_predict[i] <= 0.5:
+                    self.bayes_pos_wrong += 1.
+                if self.y[i] == 1 and self.bayes_predict[i] > 0.5:
+                    self.bayes_pos_correct += 1.
+                if self.y[i] == 0 and self.bayes_predict[i] >= 0.5:
+                    self.bayes_neg_wrong += 1.
+                if self.y[i] == 0 and self.bayes_predict[i] < 0.5:
+                    self.bayes_neg_correct += 1.
+
+
+            
+            if self.calcIRWLS:
+                if self.y[i] == 1 and self.irwls_predict[i] <= 0.5:
+                    self.irwls_pos_wrong += 1.
+                if self.y[i] == 1 and self.irwls_predict[i] > 0.5:
+                    self.irwls_pos_correct += 1.
+                if self.y[i] == 0 and self.irwls_predict[i] >= 0.5:
+                    self.irwls_neg_wrong += 1.
+                if self.y[i] == 0 and self.irwls_predict[i] < 0.5:
+                    self.irwls_neg_correct += 1.
+
+
+        if self.simulate:
+            print"""
+Bayesian Stats:
+Pos. Correct: {0:<6}  Neg. Correct: {1:<6}
+Pos. Wrong  : {2:<6}  Neg. Wrong  : {3:<6}
+                """.format(self.bayes_pos_correct, self.bayes_neg_correct, self.bayes_pos_wrong, self.bayes_neg_wrong) 
+        
+        if self.calcIRWLS:    
+            print"""
+IRWLS Stats:
+Pos. Correct: {0:<6}  Neg. Correct: {1:<6}
+Pos. Wrong  : {2:<6}  Neg. Wrong  : {3:<6}
+                """.format(self.irwls_pos_correct, self.irwls_neg_correct, self.irwls_pos_wrong, self.irwls_neg_wrong) 
 
         print """
 Bayes Classification Rate: {0}
 IRWLS Classification Rate: {1}
-        """.format((1 - count/len(self.y)), (1 - count2/len(self.y)))
+        """.format((self.bayes_pos_correct + self.bayes_neg_correct)/len(self.y), (self.irwls_pos_correct + self.irwls_neg_correct)/len(self.y))
 
     def plotBetas(self):
         for beta in np.arange(self.npar):
@@ -85,8 +123,8 @@ IRWLS Classification Rate: {1}
     def printCoefficients(self, est, sds, vnames):
         print "\nCoefficient            Estimate     StdErr     z-Score      pValue"
         for i, n in enumerate(vnames):
-            zscore = est[i]/sds[i]
-            pval = 2.*(1. - stats.norm.cdf(np.abs(zscore)))
+            zscore = np.float(est[i]/sds[i])
+            pval = np.float(2.*(1. - stats.norm.cdf(np.abs(zscore))))
             print "{0:<20}  {1: 6.3e}  {2: 6.3e}  {3: 6.2e}   {4: 6.3e}".format(n, est[i], sds[i], zscore, pval)
         print
         
@@ -205,8 +243,8 @@ def IRWLS(yi, X, link='logit', tol=1e-8, max_iter=100, verbose=False):
             lold = binLklihood(X,yi,betas,link)
         if verbose:
             print """Step {0}: \nLikelihood: {1}""".format(step, lold.likelihood)
-    variance = lold.variance
-    return betas, variance
+    variance = np.linalg.pinv(lold.information) / 4.0
+    return betas.transpose()[0], variance
 
 class binLklihood:
     def __init__(self, X, y, betas, link='logit'):
@@ -218,85 +256,23 @@ class binLklihood:
             self.pi = invlogit(np.dot(X, betas))
         elif link == 'probit':
             self.pi = stats.norm.cdf(np.dot(X, betas))
-        self.W = np.diag(self.pi*(1 - self.pi))
+
+        self.W = (self.pi * (1 - self.pi))*np.identity(X.shape[0])
         self.likelihood = loglike(self.y, self.pi)
-        self.score = X.transpose().dot((y - self.pi))
+        self.score = X.transpose().dot((self.y - self.pi))
         self.information = X.transpose().dot(self.W).dot(X)
-        # print np.diag(np.sqrt(partA))
-        self.variance = np.linalg.pinv(self.information) / 4.0
+        # self.variance = np.linalg.pinv(self.information) / 4.0
 
 
 def makeDesign(formula, dataset, intercept=True):
-    """
-    This function attempts to implement an R like funtionality for formulas for linear regression using numpy arrays.  
-
-    Inputs: formula, dataset
-    Outputs: Response Matrix, Design Matrix, Names of Design Matrix
-    Usage: 
-    formula: "chd ~ log(sbp) + tobacco + ldl + famhist + obesity + alcohol + age"
-    dataset: safr = np.genfromtxt('data/southAfrica.csv', dtype=None, delimiter=',', names=True)
-    """
-    #Making a list of available covariates from the dataset
-    dataSetNames = dataset.dtype.names
-    availableNames = [name.strip() for name in dataset.dtype.names]
-    
-    #Breaking down the formula into a list of actions
-    response, rightside = formula.split('~')
-    response = response.strip()
-
-    #Finding Reponse Transformations if there are any
-    if len(response.strip(')').split('(')) == 2:
-        response_transform = response.strip(')').split('(')[0]  
-        response = response.strip(')').split('(')[1]  
-    else: 
-        response_transform = False 
-
-    #Processing the covariates
-    rightside = [cov.strip() for cov in rightside.split('+')]
-    transforms = [cov.strip(')').split('(')[0] if len(cov.strip(')').split('(')) == 2 else False for cov in rightside]
-    covariates = [cov.strip(')').split('(')[1] if len(cov.strip(')').split('(')) == 2 else cov for cov in rightside]
-    
-    #### DEALING WITH THE RESPONSE
-    if response in availableNames:
-        if response_transform:
-            print "\nError: Nope cant do that yet... Transformations forthcoming\n"
-            sys.exit()
-        if dataset[response].dtype.char in ['S', 'U', 'V']:
-            print "Sorry cannot handle string responses types...YET!!!!"
-        else:
-            response = dataset[response].transpose()
-
+    response, design = patc.dmatrices(formula, dataset, 1)
+    if intercept:
+        betanames = design.design_info.term_names
+        return response, design, betanames
     else:
-        printErrorAvailableCovariates(response, dataSetNames)
-
-    #### DEALING WITH THE COVARIATES
-    design = np.ones(len(response))
-    variablenames = ['(Intercept)']
-
-    for pos, cov in enumerate(covariates):
-        if cov in availableNames:
-            if transforms[pos]:
-                print "\nError: Nope cant do that yet... Transformations forthcoming\n"
-                sys.exit()
-            if dataset[cov].dtype.char in ['S', 'U', 'V']:
-                types = np.unique(dataset[cov])[1:]
-                for t in types:
-                    data = [1. if i == t else 0. for i in dataset[cov]]
-                    design = np.vstack((design, data))
-                    variablenames.append("{0}::{1}".format(cov, t))
-            else:
-                design = np.vstack((design, dataset[cov]))
-                variablenames.append(cov)
-        else:
-            printErrorAvailableCovariates(cov, dataSetNames)
-    return response, design.transpose(), variablenames
-
-def printErrorAvailableCovariates(notfound, available):
-    print """\nError: '{0}' was not found in the dataset provided.\n\nAvailable Covariates:""".format(notfound)
-    for a in available:
-        print """\t{0}""".format(a)
-    print
-    sys.exit()
+        betanames =  design.design_info.term_names[1:]
+        design = design[:,1:]
+        return response, design, betanames
 
 def betaDelta(binlk):
     """
