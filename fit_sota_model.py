@@ -60,7 +60,7 @@ def fit_sota_model():
     return ui.get_fit_results()
 
 
-def plot_fit_grouped(pars, group_col, group_bin, mask=None, log=False):
+def plot_fit_grouped(pars, group_col, group_bin, mask=None, log=False, colors='br'):
     if mask is None:
         mask = np.ones(len(data_all), dtype=bool)
     data = data_all[mask]
@@ -69,9 +69,11 @@ def plot_fit_grouped(pars, group_col, group_bin, mask=None, log=False):
     group = np.trunc(data[group_col] / group_bin)
     data = data.group_by(group)
     data_mean = data.groups.aggregate(np.mean)
-
-    plt.plot(data_mean[group_col], data_mean['fail'], '.b')
-    plt.plot(data_mean[group_col], data_mean['model'], '-r')
+    len_groups = np.diff(data.groups.indices)
+    fail_sigmas = np.sqrt(data_mean['fail'] * len_groups) / len_groups
+    
+    plt.errorbar(data_mean[group_col], data_mean['fail'], yerr=fail_sigmas, fmt='.' + colors[0])
+    plt.plot(data_mean[group_col], data_mean['model'], '-' + colors[1])
     if log:
         ax = plt.gca()
         ax.set_yscale('log')
@@ -83,5 +85,5 @@ def mag_filter(mag0, mag1):
 
 
 def wp_filter(wp0, wp1):
-    ok = (data_all['warm_pix'] > wp0) & (data_all['wp'] < wp1)
+    ok = (data_all['warm_pix'] > wp0) & (data_all['warm_pix'] < wp1)
     return ok
