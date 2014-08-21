@@ -16,6 +16,7 @@ mag = acqs['mag'].astype('f4')
 
 t = Table([year, quarter, warm_pix, mag, fail],
           names=['year', 'quarter', 'warm_pix', 'mag', 'fail'])
+tg = t.group_by('quarter')
 
 with open('data/mini_acq_table.pkl', 'w') as fh:
     pickle.dump(t, fh, protocol=-1)
