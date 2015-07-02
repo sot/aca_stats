@@ -1,3 +1,11 @@
+"""
+Make a specialized file for fitting the SOTA model.
+
+***************
+This script is for legacy use only, new code should use
+/proj/sot/ska/data/acq_stats/acq_stats.h5 directly.
+***************
+"""
 import cPickle as pickle
 
 import numpy as np
