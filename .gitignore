@@ -56,3 +56,8 @@ docs/_build/
 data/
 plots/
 
+.ipynb_checkpoints/
+acq_stats_sybase_2010.fits.gz
+mult_stars_flag_trak_stats.fits.gz
+starcheck_acq_probs.dat
+starcheck_acq_probs.fits.gz
