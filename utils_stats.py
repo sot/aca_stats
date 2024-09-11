@@ -88,8 +88,15 @@ def get_acq_stats_data(start="2019-07-01"):
     acqs = Table({new_name: acqs[name] for new_name, name in names.items()})
 
     # Apply start filter
-    ok = acqs["tstart"] > CxoTime(start).secs
-    acqs = acqs[ok]
+    ok1 = acqs["tstart"] > CxoTime(start).secs
+    ok2 = ~acqs['ion_rad'].astype(bool) & ~acqs['sat_pix'].astype(bool)
+    acqs = acqs[ok1 & ok2]
+
+    stars = agasc.get_stars(acqs['agasc_id'], agasc_file="agasc*")
+    acqs['mag_aca'] = stars['MAG_ACA']
+    acqs['mag_catid'] = stars['MAG_CATID']
+    acqs["color"] = stars["COLOR1"]
+    acqs = acqs[~np.isclose(acqs["color"], 1.5)]
 
     # Coerce uint8 columns (which are all actually bool) to bool
     for col in acqs.itercols():
@@ -101,13 +108,13 @@ def get_acq_stats_data(start="2019-07-01"):
     acqs["year"] = CxoTime(acqs["tstart"], format="cxcsec").decimalyear.astype("f4")
     acqs["quarter"] = (np.trunc((acqs["year"] - year_q0) * 4)).astype("f4")
 
-    # Get latest mag estimates from the AGASC with supplement
-    mags_supp = agasc.get_supplement_table('mags')
-    mags_supp = dict(zip(mags_supp['agasc_id'], mags_supp['mag_aca']))
-    acqs["mag_aca"] = [
-        mags_supp.get(agasc_id, mag_aca)
-        for agasc_id, mag_aca in zip(acqs["agasc_id"], acqs["mag_aca"])
-    ]
+    # # Get latest mag estimates from the AGASC with supplement
+    # mags_supp = agasc.get_supplement_table('mags')
+    # mags_supp = dict(zip(mags_supp['agasc_id'], mags_supp['mag_aca']))
+    # acqs["mag_aca"] = [
+    #     mags_supp.get(agasc_id, mag_aca)
+    #     for agasc_id, mag_aca in zip(acqs["agasc_id"], acqs["mag_aca"])
+    # ]
 
     # Remove known bad stars
     bad_stars = agasc.get_supplement_table('bad')
