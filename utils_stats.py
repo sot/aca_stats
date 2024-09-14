@@ -2,18 +2,51 @@ import itertools
 import os
 import re
 from collections import OrderedDict
+from dataclasses import dataclass, field
+from functools import cached_property
 from pathlib import Path
 
 import agasc
 import numpy as np
+import numpy.typing as npt
 import requests
 import Ska.ftp
 from astropy.io import ascii
 from astropy.table import Table, vstack
 from cxotime import CxoTime
+from scipy.stats import binom
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+
 
 TWIKI_URL_ROOT = "https://occweb.cfa.harvard.edu/twiki/pub/"
 SKA = Path(os.environ["SKA"])
+
+
+@dataclass
+class ValsBins:
+    vals: tuple
+
+    @cached_property
+    def bins(self):
+        return get_bins(self.vals)
+
+
+@dataclass
+class AcqBins:
+    mag: ValsBins
+    t_ccd: ValsBins
+    halfwidth: ValsBins = field(
+        default_factory=lambda: ValsBins((60, 80, 100, 120, 140, 160))
+    )
+
+    @cached_property
+    def shape(self):
+        return (
+            len(self.mag.vals),
+            len(self.t_ccd.vals),
+            len(self.halfwidth.vals),
+        )
 
 
 def flatten_pea_test_data(dat):
@@ -90,6 +123,7 @@ def get_acq_stats_data(start="2019-07-01"):
         "search_success": "acqid",
         "search_box_hw": "halfw",
         "ccd_temp": "ccd_temp",
+        "ObsID": "obsid",
     }
     acqs = Table({new_name: acqs[name] for new_name, name in names.items()})
 
@@ -126,7 +160,22 @@ def get_acq_stats_data(start="2019-07-01"):
     return acqs
 
 
+def get_bins(vals: npt.ArrayLike) -> np.ndarray:
+    """Get bins for a list of values that are sorted and unique"""
+    vals = np.asarray(vals)
+    centers = (vals[1:] + vals[:-1]) / 2
+    bins = np.concatenate(
+        [
+            [vals[0] - (vals[1] - vals[0]) / 2],
+            centers,
+            [vals[-1] + (vals[-1] - vals[-2]) / 2],
+        ]
+    )
+    return bins
+
+
 def get_vals_and_bins(vals):
+    """Get unique sorted vals and bins from a list of values that may have duplicates"""
     out_vals = np.array(sorted(set(vals)))
     out_val_centers = (out_vals[1:] + out_vals[:-1]) / 2
     out_val_bins = np.concatenate(
@@ -141,9 +190,7 @@ def get_vals_and_bins(vals):
 
 def get_samples_successes(
     dat,
-    mag_bins,
-    t_ccd_bins,
-    halfwidth_bins=None,
+    acq_bins,
     mag_name="star_mag",
     t_ccd_name="ccd_temp",
     halfwidth_name="search_box_hw",
@@ -158,17 +205,14 @@ def get_samples_successes(
     - n_samp: number of samples in each bin
     - n_succ: number of successes in each bin
     """
-    if halfwidth_bins is None:
-        _, halfwidth_bins = get_vals_and_bins([60, 80, 100, 120, 140, 160])
+    mag_bins = acq_bins.mag.bins
+    t_ccd_bins = acq_bins.t_ccd.bins
+    halfwidth_bins = acq_bins.halfwidth.bins
 
-    zeros = np.zeros(
-        shape=(len(mag_bins) - 1, len(t_ccd_bins) - 1, len(halfwidth_bins) - 1),
-        dtype=int,
-    )
+    zeros = np.zeros(shape=acq_bins.shape, dtype=int)
     n_samp = zeros.copy()
     n_succ = zeros.copy()
 
-    # Bin halfwidths (narrow since ASVT data are all at the same mag, T_ccd)
     for ii, mag0, mag1 in zip(itertools.count(), mag_bins[:-1], mag_bins[1:]):
         ok0 = (dat[mag_name] >= mag0) & (dat[mag_name] < mag1)
         for jj, t_ccd0, t_ccd1 in zip(
@@ -188,8 +232,11 @@ def get_samples_successes(
     return n_samp, n_succ
 
 
-def as_summary_table(arr, mag_vals, t_ccd_vals, fmt=None, add_mag=True):
+def as_summary_table(arr, acq_bins: AcqBins, fmt=None, add_mag=True):
     """Turn one of the summary 6x6 arrays into a readable table"""
+    mag_vals = acq_bins.mag.vals
+    t_ccd_vals = acq_bins.t_ccd.vals
+
     t = Table()
     if add_mag:
         t["mag"] = [str(val) for val in mag_vals]
@@ -201,3 +248,66 @@ def as_summary_table(arr, mag_vals, t_ccd_vals, fmt=None, add_mag=True):
         if fmt:
             t[name].info.format = fmt
     return t
+
+
+def pformat_sampling(
+    dat,
+    acq_bins: AcqBins,
+    add_mag=True,
+):
+    lines = []
+    n_samp_all, _ = get_samples_successes(dat, acq_bins=acq_bins)
+    for kk, halfw in enumerate((60, 80, 100, 120, 140, 160)):
+        n_samp = n_samp_all[:, :, kk]
+        lines.append(f"Halfwidth {halfw}:")
+        lines.extend(as_summary_table(n_samp, acq_bins, add_mag=add_mag).pformat_all())
+        lines.append("")
+    return lines
+
+
+def calc_diff_pmf(p, pmf1, pmf2):
+    dp = p[1] - p[0]  # assume uniform grid
+    pmf1 = pmf1 / np.sum(pmf1)
+    pmf2 = pmf2 / np.sum(pmf2)
+
+    i0 = int(1 / dp)
+    n_out = 2 * i0 + 1
+    x = (np.arange(n_out) - i0) * dp
+    out = np.zeros(n_out)
+    p2 = p
+    for i1, p1 in enumerate(p):
+        d_pmf12 = pmf1[i1] * pmf2
+        i_out = np.round((p1 - p2) / dp).astype(int) + i0
+        out[i_out] += d_pmf12
+
+    return x, np.cumsum(out)
+
+
+def plot_diff_pmf(k1, n1, k2, n2, title="", l1="", l2="", axes=None):
+    if axes is None:
+        _, axes = plt.subplots(1, 2, figsize=(12, 4))
+    ax0 = axes[0]
+    ax1 = axes[1]
+    dp = 0.001
+    p = np.arange(0.0 + dp / 2, 1.0, dp)
+    pmf1 = binom.pmf(k1, n1, p)
+    pmf2 = binom.pmf(k2, n2, p)
+    dp, cdf = calc_diff_pmf(p, pmf1, pmf2)
+
+    ax0.plot(p, pmf1, label=f"k={k1} n={n1} {l1}")
+    ax0.plot(p, pmf2, label=f"k={k2} n={n2} {l2}")
+    ax0.grid(True)
+    if title:
+        ax0.set_title(title)
+    ax0.set_xlabel("p")
+    ax0.legend(loc="best")
+
+    ax1.plot(dp, cdf)
+    ax1.grid(True)
+    ax1.set_title("CDF of difference")
+    i10, i90 = np.searchsorted(cdf, [0.1, 0.9])
+    p10, p90 = dp[[i10, i90]]
+    patch = patches.Rectangle((p10, 0.1), p90 - p10, 0.8, fc="r", alpha=0.2, ec="k")
+    ax1.add_patch(patch)
+    ax1.set_xlim(-0.5, 0.5)
+    ax1.axvline(0, color="r", ls="--")
