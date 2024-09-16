@@ -75,6 +75,9 @@ def flatten_pea_test_data(dat):
         out_tables.append(out_table)
 
     out = vstack(out_tables)
+    if "search_success" in out.colnames:
+        out["search_success"] = out["search_success"].astype(bool)
+
     return out
 
 
@@ -205,13 +208,39 @@ def get_samples_successes(
     - n_samp: number of samples in each bin
     - n_succ: number of successes in each bin
     """
-    mag_bins = acq_bins.mag.bins
-    t_ccd_bins = acq_bins.t_ccd.bins
-    halfwidth_bins = acq_bins.halfwidth.bins
 
     zeros = np.zeros(shape=acq_bins.shape, dtype=int)
     n_samp = zeros.copy()
     n_succ = zeros.copy()
+    for ii, jj, kk, ok in get_sample_masks(
+        dat, acq_bins, mag_name, t_ccd_name, halfwidth_name
+    ):
+        n_samp[ii, jj, kk] = np.count_nonzero(ok)
+        n_succ[ii, jj, kk] = np.count_nonzero(dat[obc_id_name][ok])
+
+    return n_samp, n_succ
+
+
+def get_sample_masks(
+    dat,
+    acq_bins,
+    mag_name="star_mag",
+    t_ccd_name="ccd_temp",
+    halfwidth_name="search_box_hw",
+):
+    """Yield mask into ``dat`` for each bin in the acq_bins
+
+    Returns
+    -------
+    ii, jj, kk, mask : int, int, int, np.array
+        The indices into the acq_bins and the mask into ``dat`` for each bin. ``ii`` is
+        the index into the mag bins, ``jj`` is the index into the t_ccd bins, ``kk`` is
+        the index into the halfwidth bins, and ``mask`` is the boolean mask into
+        ``dat``.
+    """
+    mag_bins = acq_bins.mag.bins
+    t_ccd_bins = acq_bins.t_ccd.bins
+    halfwidth_bins = acq_bins.halfwidth.bins
 
     for ii, mag0, mag1 in zip(itertools.count(), mag_bins[:-1], mag_bins[1:]):
         ok0 = (dat[mag_name] >= mag0) & (dat[mag_name] < mag1)
@@ -226,10 +255,7 @@ def get_samples_successes(
                     dat[halfwidth_name] < halfwidth1
                 )
                 ok = ok0 & ok1 & ok2
-                n_samp[ii, jj, kk] = np.count_nonzero(ok)
-                n_succ[ii, jj, kk] = np.count_nonzero(dat[obc_id_name][ok])
-
-    return n_samp, n_succ
+                yield ii, jj, kk, ok
 
 
 def as_summary_table(arr, acq_bins: AcqBins, fmt=None, add_mag=True):
