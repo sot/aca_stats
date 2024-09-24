@@ -7,6 +7,8 @@ from functools import cached_property
 from pathlib import Path
 
 import agasc
+import matplotlib.patches as patches
+import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 import requests
@@ -15,9 +17,6 @@ from astropy.io import ascii
 from astropy.table import Table, vstack
 from cxotime import CxoTime
 from scipy.stats import binom
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-
 
 TWIKI_URL_ROOT = "https://occweb.cfa.harvard.edu/twiki/pub/"
 SKA = Path(os.environ["SKA"])
@@ -95,7 +94,7 @@ def read_twiki_csv(filename, web="Aspect", auth=None):
     return dat
 
 
-def get_acq_stats_data(start="2019-07-01"):
+def get_acq_stats_data(start="2019-07-01", stop=None):
     """
     Get acq stats data after ``start`` in a standard format.
 
@@ -131,7 +130,7 @@ def get_acq_stats_data(start="2019-07-01"):
     acqs = Table({new_name: acqs[name] for new_name, name in names.items()})
 
     # Apply start filter
-    ok1 = acqs["tstart"] > CxoTime(start).secs
+    ok1 = (acqs["tstart"] > CxoTime(start).secs) & (acqs["tstart"] < CxoTime(stop).secs)
     ok2 = ~acqs["ion_rad"].astype(bool) & ~acqs["sat_pix"].astype(bool)
     ok3 = ~np.isclose(acqs["color"], 1.5)
     acqs = acqs[ok1 & ok2 & ok3]
@@ -191,6 +190,22 @@ def get_vals_and_bins(vals):
     return out_vals, out_val_bins
 
 
+def get_samples_fails(*args, **kwargs):
+    """Aggregate binned number of samples and successes for acquisition data.
+
+    This is a thin wrapper around get_samples_successes that returns the number of
+    samples and the number of failures (n_samp - n_succ).
+
+    Take the table of acquisition samples and return two 3-d arrays (mag, t_ccd,
+    halfwidth):
+
+    - n_samp: number of samples in each bin
+    - n_fail: number of failures in each bin
+    """
+    n_samp, n_succ = get_samples_successes(*args, **kwargs)
+    return n_samp, n_samp - n_succ
+
+
 def get_samples_successes(
     dat,
     acq_bins,
@@ -198,9 +213,10 @@ def get_samples_successes(
     t_ccd_name="ccd_temp",
     halfwidth_name="search_box_hw",
     obc_id_name="search_success",
+    force_fail_prob=None,
 ):
     """
-    Aggregate binned number of samples and successes for ASVT data.
+    Aggregate binned number of samples and successes for acquisition data.
 
     Take the table of acquisition samples and return two 3-d arrays (mag, t_ccd,
     halfwidth):
@@ -208,15 +224,27 @@ def get_samples_successes(
     - n_samp: number of samples in each bin
     - n_succ: number of successes in each bin
     """
+    np.random.seed(0)
 
     zeros = np.zeros(shape=acq_bins.shape, dtype=int)
     n_samp = zeros.copy()
     n_succ = zeros.copy()
+    search_success = dat[obc_id_name].copy()
+    if force_fail_prob is not None:
+        # Force some fraction of successes to fail
+        n_dat = len(dat)
+        idxs = np.random.choice(
+            np.arange(n_dat),
+            size=int(n_dat * force_fail_prob),
+            replace=False,
+        )
+        search_success[idxs] = False
+
     for ii, jj, kk, ok in get_sample_masks(
         dat, acq_bins, mag_name, t_ccd_name, halfwidth_name
     ):
         n_samp[ii, jj, kk] = np.count_nonzero(ok)
-        n_succ[ii, jj, kk] = np.count_nonzero(dat[obc_id_name][ok])
+        n_succ[ii, jj, kk] = np.count_nonzero(search_success[ok])
 
     return n_samp, n_succ
 
@@ -310,6 +338,7 @@ def calc_diff_pmf(p, pmf1, pmf2):
 
 
 def plot_diff_pmf(k1, n1, k2, n2, title="", l1="", l2="", axes=None):
+
     if axes is None:
         _, axes = plt.subplots(1, 2, figsize=(12, 4))
     ax0 = axes[0]
@@ -320,13 +349,13 @@ def plot_diff_pmf(k1, n1, k2, n2, title="", l1="", l2="", axes=None):
     pmf2 = binom.pmf(k2, n2, p)
     dp, cdf = calc_diff_pmf(p, pmf1, pmf2)
 
-    ax0.plot(p, pmf1, label=f"k={k1} n={n1} {l1}")
-    ax0.plot(p, pmf2, label=f"k={k2} n={n2} {l2}")
+    ax0.plot(p, pmf1, label=f"{k1}/{n1}={k1 / n1 * 100:.1f}% {l1}")
+    ax0.plot(p, pmf2, label=f"{k2}/{n2}={k2 / n2 * 100:.1f}% {l2}")
     ax0.grid(True)
     if title:
         ax0.set_title(title)
     ax0.set_xlabel("p")
-    ax0.legend(loc="best")
+    ax0.legend(loc="best", fontsize="small")
 
     ax1.plot(dp, cdf)
     ax1.grid(True)
