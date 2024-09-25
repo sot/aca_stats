@@ -229,16 +229,7 @@ def get_samples_successes(
     zeros = np.zeros(shape=acq_bins.shape, dtype=int)
     n_samp = zeros.copy()
     n_succ = zeros.copy()
-    search_success = dat[obc_id_name].copy()
-    if force_fail_prob is not None:
-        # Force some fraction of successes to fail
-        n_dat = len(dat)
-        idxs = np.random.choice(
-            np.arange(n_dat),
-            size=int(n_dat * force_fail_prob),
-            replace=False,
-        )
-        search_success[idxs] = False
+    search_success = force_fail_samples(dat[obc_id_name], force_fail_prob)
 
     for ii, jj, kk, ok in get_sample_masks(
         dat, acq_bins, mag_name, t_ccd_name, halfwidth_name
@@ -247,6 +238,23 @@ def get_samples_successes(
         n_succ[ii, jj, kk] = np.count_nonzero(search_success[ok])
 
     return n_samp, n_succ
+
+
+def force_fail_samples(search_success, force_fail_prob=None):
+    if force_fail_prob is None:
+        return search_success
+
+    search_success = search_success.copy()
+    n_dat = len(search_success)
+    search_success_indices = np.where(search_success)[0]
+    size = min(int(force_fail_prob * n_dat), len(search_success_indices))
+    idxs = np.random.choice(
+        search_success_indices,
+        size=size,
+        replace=False,
+    )
+    search_success[idxs] = False
+    return search_success
 
 
 def get_sample_masks(
@@ -338,7 +346,6 @@ def calc_diff_pmf(p, pmf1, pmf2):
 
 
 def plot_diff_pmf(k1, n1, k2, n2, title="", l1="", l2="", axes=None):
-
     if axes is None:
         _, axes = plt.subplots(1, 2, figsize=(12, 4))
     ax0 = axes[0]
