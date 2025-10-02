@@ -322,7 +322,7 @@ def pformat_sampling(
     for kk, halfw in enumerate((60, 80, 100, 120, 140, 160)):
         n_samp = n_samp_all[:, :, kk]
         lines.append(f"Halfwidth {halfw}:")
-        lines.extend(as_summary_table(n_samp, acq_bins, add_mag=add_mag).pformat_all())
+        lines.extend(as_summary_table(n_samp, acq_bins, add_mag=add_mag).pformat())
         lines.append("")
     return lines
 
